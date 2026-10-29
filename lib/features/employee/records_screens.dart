@@ -1,0 +1,237 @@
+import 'package:flutter/material.dart';
+
+import '../../models/models.dart';
+import '../../services/employee_service.dart';
+import '../../state/session.dart';
+import '../../widgets/common.dart';
+import '../../widgets/editor.dart';
+
+class HistoryScreen extends StatefulWidget {
+  final Session session;
+  const HistoryScreen(this.session, {super.key});
+  @override
+  State<HistoryScreen> createState() => _HistoryScreenState();
+}
+
+class _HistoryScreenState extends State<HistoryScreen> {
+  DateTimeRange range = DateTimeRange(
+    start: DateTime.now().subtract(const Duration(days: 30)),
+    end: DateTime.now(),
+  );
+  String? employeeId;
+  List<Json> employees = [];
+  @override
+  void initState() {
+    super.initState();
+    if (widget.session.user!.isAdmin) {
+      allRows(widget.session.api, '/employees')
+          .then((x) {
+            if (mounted) setState(() => employees = x);
+          })
+          .catchError((Object e) {
+            if (mounted) message(context, e.toString(), error: true);
+          });
+    }
+  }
+
+  Future<void> pick() async {
+    final r = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime.now().subtract(const Duration(days: 730)),
+      lastDate: DateTime.now(),
+      initialDateRange: range,
+    );
+    if (r != null) {
+      if (r.duration.inDays > 93) {
+        if (mounted) message(context, 'Chọn tối đa 93 ngày.', error: true);
+        return;
+      }
+      setState(() => range = r);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final from = range.start.toIso8601String().substring(0, 10),
+        to = range.end.toIso8601String().substring(0, 10);
+    return DataPage(
+      key: ValueKey('$from-$to-$employeeId'),
+      title: widget.session.user!.isAdmin
+          ? 'Quản lý chấm công'
+          : 'Lịch sử chấm công',
+      load: (p) => widget.session.api.page(
+        '${widget.session.user!.isAdmin ? '/attendance' : '/attendance/me'}?from=$from&to=$to&page=$p&pageSize=20${employeeId == null ? '' : '&employeeId=$employeeId'}',
+      ),
+      header: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Column(
+          children: [
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text('${dateOnly(from)} – ${dateOnly(to)}'),
+              trailing: const Icon(Icons.date_range),
+              onTap: pick,
+            ),
+            if (widget.session.user!.isAdmin)
+              DropdownButtonFormField<String>(
+                initialValue: employeeId,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Nhân viên'),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: null,
+                    child: Text('Tất cả nhân viên'),
+                  ),
+                  ...employees.map(
+                    (x) => DropdownMenuItem(
+                      value: x['id'] as String,
+                      child: Text(
+                        x['fullName'],
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ],
+                onChanged: (v) => setState(() => employeeId = v),
+              ),
+          ],
+        ),
+      ),
+      item: (r, reload) => ItemCard(
+        title: '${actionName(r['action'])} · ${r['employeeName']}',
+        subtitle:
+            '${vietnamTime(r['effectiveAtUtc'])}\n${r['shiftName']} · ${dateOnly(r['workDate'])}\n${r['source'] == 'AdminApproved' ? 'Được Admin xác minh' : 'Tự động xác nhận'}\nKhoảng cách ${(r['distanceMeters'] as num).toStringAsFixed(1)} m · GPS ${(r['accuracyMeters'] as num).toStringAsFixed(1)} m',
+        icon: r['action'] == 'CheckOut' ? Icons.logout : Icons.login,
+      ),
+    );
+  }
+}
+
+class ScheduleScreen extends StatelessWidget {
+  final Session session;
+  const ScheduleScreen(this.session, {super.key});
+  @override
+  Widget build(BuildContext context) {
+    final start = DateTime.now()
+        .subtract(const Duration(days: 1))
+        .toIso8601String()
+        .substring(0, 10);
+    final end = DateTime.now()
+        .add(const Duration(days: 30))
+        .toIso8601String()
+        .substring(0, 10);
+    return DataPage(
+      title: 'Lịch làm việc của tôi',
+      load: (p) => session.api.page(
+        '/employee-shifts/me?from=$start&to=$end&page=$p&pageSize=20',
+      ),
+      item: (r, reload) => ItemCard(
+        title: r['shiftName'],
+        subtitle:
+            'Ngày ${dateOnly(r['workDate'])}\n${vietnamTime(r['startUtc'])} – ${vietnamTime(r['endUtc'])}\n${r['locationName']}',
+        icon: Icons.event_available,
+      ),
+    );
+  }
+}
+
+class ProfileScreen extends StatefulWidget {
+  final Session session;
+  const ProfileScreen(this.session, {super.key});
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  Future<Employee>? future;
+  @override
+  void initState() {
+    super.initState();
+    if (!widget.session.user!.isAdmin) {
+      future = EmployeeService(widget.session.api).mine();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final u = widget.session.user!;
+    return ListView(
+      padding: const EdgeInsets.all(24),
+      children: [
+        CircleAvatar(
+          radius: 38,
+          child: Text(
+            u.fullName.isEmpty ? 'Đ' : u.fullName[0],
+            style: const TextStyle(fontSize: 28),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          u.fullName,
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.headlineSmall,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          u.isAdmin ? 'Quản trị viên' : 'Nhân viên',
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 24),
+        ItemCard(
+          title: 'Thông tin tài khoản',
+          subtitle:
+              'Tên đăng nhập: ${u.username}\nEmail: ${u.email}\nEmail: ${u.emailConfirmed ? 'Đã xác minh' : 'Chưa xác minh'}\nĐiện thoại: ${u.phoneNumberConfirmed ? 'Đã xác minh' : 'Chưa xác minh'}',
+          icon: Icons.person_outline,
+        ),
+        if (future != null)
+          FutureBuilder<Employee>(
+            future: future,
+            builder: (context, s) {
+              if (s.hasError) {
+                return ErrorPanel(
+                  s.error!,
+                  () => setState(
+                    () => future = EmployeeService(widget.session.api).mine(),
+                  ),
+                );
+              }
+              if (!s.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final e = s.data!;
+              return ItemCard(
+                title: 'Hồ sơ nhân viên',
+                subtitle:
+                    'Mã: ${e.code}\nPhòng ban: ${e.departmentName}\nChức vụ: ${e.jobTitle}\nNgày vào làm: ${dateOnly(e.hireDate)}\nSố điện thoại: ${e.phone}',
+                icon: Icons.badge_outlined,
+              );
+            },
+          ),
+        const SizedBox(height: 24),
+        OutlinedButton.icon(
+          onPressed: () async {
+            if (!await confirm(context, 'Đăng xuất khỏi tài khoản này?')) {
+              return;
+            }
+            try {
+              await widget.session.logout();
+            } catch (e) {
+              if (context.mounted) {
+                message(
+                  context,
+                  'Đã xóa phiên trên thiết bị. Máy chủ chưa xác nhận thu hồi phiên do lỗi kết nối.',
+                  error: true,
+                );
+              }
+            }
+          },
+          icon: const Icon(Icons.logout),
+          label: const Padding(
+            padding: EdgeInsets.all(12),
+            child: Text('Đăng xuất'),
+          ),
+        ),
+      ],
+    );
+  }
+}
