@@ -4,6 +4,7 @@ import '../models/models.dart';
 import '../services/api_service.dart';
 import '../services/device_service.dart';
 import 'common.dart';
+import 'location_map.dart';
 
 class EditorField {
   final String keyName, label, type;
@@ -72,6 +73,14 @@ class _EditorScreenState extends State<EditorScreen> {
 
   Future<void> submit() async {
     if (!form.currentState!.validate()) return;
+    if (widget.fillGps &&
+        !await confirm(
+          context,
+          'Lưu tâm địa điểm ${controls['latitude']?.text}, ${controls['longitude']?.text}, bán kính ${controls['radiusMeters']?.text} m? Hãy kiểm tra bản đồ xem trước.',
+        )) {
+      return;
+    }
+    if (!mounted) return;
     setState(() => busy = true);
     try {
       final body = <String, dynamic>{...values};
@@ -100,7 +109,12 @@ class _EditorScreenState extends State<EditorScreen> {
   Future<void> gps() async {
     setState(() => busy = true);
     try {
-      final p = await DeviceService.position();
+      final target =
+          double.tryParse(controls['maxAccuracyMeters']?.text ?? '') ?? 50;
+      final p = await DeviceService.position(
+        targetAccuracyMeters: target,
+        requireAccuracy: true,
+      );
       if (!mounted) return;
       controls['latitude']?.text = p.latitude.toStringAsFixed(7);
       controls['longitude']?.text = p.longitude.toStringAsFixed(7);
@@ -174,6 +188,20 @@ class _EditorScreenState extends State<EditorScreen> {
                       ),
                     ),
                   ),
+                if (widget.fillGps) ...[
+                  LocationMap(
+                    latitude:
+                        double.tryParse(controls['latitude']?.text ?? '') ??
+                        double.nan,
+                    longitude:
+                        double.tryParse(controls['longitude']?.text ?? '') ??
+                        double.nan,
+                    radius:
+                        double.tryParse(controls['radiusMeters']?.text ?? '') ??
+                        0,
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 ...widget.fields.map((f) {
                   if (f.type == 'bool') {
                     return SwitchListTile(
@@ -215,7 +243,11 @@ class _EditorScreenState extends State<EditorScreen> {
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 18),
                     child: TextFormField(
+                      onChanged: widget.fillGps ? (_) => setState(() {}) : null,
                       controller: controls[f.keyName],
+                      obscureText: f.type == 'password',
+                      autocorrect: f.type != 'password',
+                      enableSuggestions: f.type != 'password',
                       readOnly:
                           f.readOnly || f.type == 'date' || f.type == 'time',
                       onTap: f.type == 'date' || f.type == 'time'

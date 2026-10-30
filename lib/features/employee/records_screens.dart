@@ -5,6 +5,7 @@ import '../../services/employee_service.dart';
 import '../../state/session.dart';
 import '../../widgets/common.dart';
 import '../../widgets/editor.dart';
+import '../settings_screen.dart';
 
 class HistoryScreen extends StatefulWidget {
   final Session session;
@@ -100,7 +101,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
       item: (r, reload) => ItemCard(
         title: '${actionName(r['action'])} · ${r['employeeName']}',
         subtitle:
-            '${vietnamTime(r['effectiveAtUtc'])}\n${r['shiftName']} · ${dateOnly(r['workDate'])}\n${r['source'] == 'AdminApproved' ? 'Được Admin xác minh' : 'Tự động xác nhận'}\nKhoảng cách ${(r['distanceMeters'] as num).toStringAsFixed(1)} m · GPS ${(r['accuracyMeters'] as num).toStringAsFixed(1)} m',
+            '${vietnamTime(r['effectiveAtUtc'])}\n${r['shiftName']} · ${dateOnly(r['workDate'])}\n${r['source'] == 'AdminCorrection'
+                ? 'Admin bổ sung theo giải trình'
+                : r['source'] == 'AdminApproved'
+                ? 'Được Admin xác minh'
+                : 'Tự động xác nhận'}\n${r['distanceMeters'] == null || r['accuracyMeters'] == null ? 'Không có GPS: bản ghi điều chỉnh có nhật ký Admin' : 'Khoảng cách ${(r['distanceMeters'] as num).toStringAsFixed(1)} m · GPS ${(r['accuracyMeters'] as num).toStringAsFixed(1)} m'}',
         icon: r['action'] == 'CheckOut' ? Icons.logout : Icons.login,
       ),
     );
@@ -160,14 +165,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
       children: [
         CircleAvatar(
           radius: 38,
-          child: Text(
-            u.fullName.isEmpty ? 'Đ' : u.fullName[0],
-            style: const TextStyle(fontSize: 28),
-          ),
+          backgroundImage: u.avatarBytes == null
+              ? null
+              : MemoryImage(u.avatarBytes!),
+          child: u.avatarBytes != null
+              ? null
+              : Text(
+                  u.name.isEmpty ? 'Đ' : u.name[0],
+                  style: const TextStyle(fontSize: 28),
+                ),
         ),
         const SizedBox(height: 16),
         Text(
-          u.fullName,
+          u.name,
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.headlineSmall,
         ),
@@ -208,6 +218,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
             },
           ),
         const SizedBox(height: 24),
+        ListTile(
+          leading: const Icon(Icons.settings_outlined),
+          title: const Text('Cài đặt'),
+          subtitle: const Text('Giao diện, sinh trắc học và hồ sơ'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => SettingsScreen(widget.session)),
+            );
+            if (mounted && widget.session.user != null) {
+              setState(
+                () => future = widget.session.user!.isAdmin
+                    ? null
+                    : EmployeeService(widget.session.api).mine(),
+              );
+            }
+          },
+        ),
         OutlinedButton.icon(
           onPressed: () async {
             if (!await confirm(context, 'Đăng xuất khỏi tài khoản này?')) {

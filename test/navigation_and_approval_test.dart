@@ -44,12 +44,17 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
       final client = MockClient((request) async {
         expect(request.url.scheme, 'https');
-        return response(page([]));
+        return response({
+          ...page([]),
+          'serverTimeUtc': DateTime.now().toUtc().toIso8601String(),
+          'status': 'Draft',
+        });
       });
       await tester.pumpWidget(AttendanceApp(session('Employee', client)));
       await tester.pumpAndSettle();
       expect(find.text('Hôm nay'), findsOneWidget);
-      expect(find.text('Lịch sử'), findsOneWidget);
+      expect(find.text('Bảng công'), findsOneWidget);
+      expect(find.text('Lịch làm'), findsOneWidget);
       expect(find.text('Chấm công vào / ra').hitTestable(), findsOneWidget);
       expect(find.text('GPS hiện tại'), findsNothing);
       await tester.scrollUntilVisible(find.text('Tiện ích').hitTestable(), 140);
@@ -72,6 +77,8 @@ void main() {
         'checkOuts': 0,
         'lateCheckIns': 0,
         'openShifts': 0,
+        'items': [],
+        'date': '2026-10-30',
       }),
     );
     await tester.pumpWidget(AttendanceApp(session('Admin', client)));
@@ -95,7 +102,7 @@ void main() {
         .substring(0, 10);
     final client = MockClient(
       (request) async => response(
-        request.url.path.endsWith('/employee-shifts/me')
+        request.url.path.endsWith('/attendance/options')
             ? page([
                 {
                   'id': 'assignment-test',
@@ -103,7 +110,11 @@ void main() {
                   'workDate': today,
                 },
               ])
-            : page([]),
+            : {
+                ...page([]),
+                'serverTimeUtc': DateTime.now().toUtc().toIso8601String(),
+                'status': 'Draft',
+              },
       ),
     );
     await tester.pumpWidget(AttendanceApp(session('Employee', client)));
@@ -146,7 +157,11 @@ void main() {
         }
         if (request.url.path.endsWith('/employees') &&
             request.method == 'GET') {
-          return response(page([]));
+          return response({
+            ...page([]),
+            'serverTimeUtc': DateTime.now().toUtc().toIso8601String(),
+            'status': 'Draft',
+          });
         }
         if (request.url.path.endsWith(
           '/users/pending-test/approve-registration',

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -27,6 +28,7 @@ class ApiService {
     String path, {
     Json? body,
     String? idempotencyKey,
+    bool binary = false,
   }) async {
     try {
       final headers = <String, String>{
@@ -44,6 +46,9 @@ class ApiService {
           .timeout(const Duration(seconds: 25));
       final response = await http.Response.fromStream(streamed)
           .timeout(const Duration(seconds: 25));
+      if (binary && response.statusCode >= 200 && response.statusCode < 300) {
+        return response.bodyBytes;
+      }
       dynamic data;
       if (response.bodyBytes.isNotEmpty) {
         try {
@@ -92,6 +97,8 @@ class ApiService {
 
   Future<Json> get(String path) async =>
       Map<String, dynamic>.from(await request('GET', path));
+  Future<Uint8List> download(String path) async =>
+      await request('GET', path, binary: true) as Uint8List;
   Future<List<Json>> array(String path) async =>
       (await request('GET', path) as List)
           .map((x) => Map<String, dynamic>.from(x))

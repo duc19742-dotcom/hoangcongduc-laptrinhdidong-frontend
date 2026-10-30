@@ -1,3 +1,9 @@
+import 'timesheets_screen.dart';
+import 'leave_screen.dart';
+import 'admin/dashboard_screen.dart';
+import 'admin/schedule_screen.dart';
+import 'admin/site_qr_screen.dart';
+
 import 'package:flutter/material.dart';
 
 import '../models/models.dart';
@@ -41,9 +47,9 @@ class _HomeScreenState extends State<HomeScreen> {
         .toIso8601String()
         .substring(0, 10);
     summary = widget.session.user!.isAdmin
-        ? widget.session.api.get('/attendance/statistics?from=$now&to=$now')
+        ? widget.session.api.get('/dashboard?date=$now')
         : widget.session.api.get(
-            '/attendance/me?from=$now&to=$now&pageSize=100',
+            '/timesheets/${int.parse(now.substring(0, 4))}/${int.parse(now.substring(5, 7))}',
           );
   }
 
@@ -88,11 +94,15 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final s = widget.session, u = s.user!;
+    final profileIndex = u.isAdmin ? 2 : 3;
+    final sheetIndex = u.isAdmin ? 1 : 2;
     return Scaffold(
-      appBar: selected == 1
+      appBar: selected == sheetIndex || !u.isAdmin && selected == 1
           ? null
           : AppBar(
-              title: Text(selected == 2 ? 'Hồ sơ' : 'Đức Attendance'),
+              title: Text(
+                selected == profileIndex ? 'Hồ sơ' : 'Đức Attendance',
+              ),
               actions: [
                 if (selected == 0)
                   IconButton(
@@ -111,9 +121,14 @@ class _HomeScreenState extends State<HomeScreen> {
             selectedIcon: Icon(Icons.dashboard),
             label: u.isAdmin ? 'Tổng quan' : 'Hôm nay',
           ),
-          NavigationDestination(
-            icon: const Icon(Icons.history),
-            label: u.isAdmin ? 'Bảng công' : 'Lịch sử',
+          if (!u.isAdmin)
+            const NavigationDestination(
+              icon: Icon(Icons.calendar_month_outlined),
+              label: 'Lịch làm',
+            ),
+          const NavigationDestination(
+            icon: Icon(Icons.table_chart_outlined),
+            label: 'Bảng công',
           ),
           const NavigationDestination(
             icon: Icon(Icons.person_outline),
@@ -122,10 +137,12 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: selected == 2
+      body: selected == profileIndex
           ? ProfileScreen(s)
-          : selected == 1
-          ? HistoryScreen(s)
+          : selected == sheetIndex
+          ? TimesheetsScreen(s)
+          : !u.isAdmin && selected == 1
+          ? TimesheetsScreen(s, scheduleOnly: true)
           : RefreshIndicator(
               onRefresh: () async {
                 setState(load);
@@ -137,8 +154,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xff155eef), Color(0xff00359e)],
+                      gradient: LinearGradient(
+                        colors: [
+                          Theme.of(context).colorScheme.primary,
+                          Color.lerp(
+                            Theme.of(context).colorScheme.primary,
+                            Colors.black,
+                            .2,
+                          )!,
+                        ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
@@ -151,8 +175,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           u.isAdmin
                               ? 'KHÔNG GIAN QUẢN TRỊ'
                               : 'NGÀY LÀM VIỆC CỦA BẠN',
-                          style: const TextStyle(
-                            color: Colors.white,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onPrimary,
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
                             letterSpacing: 1,
@@ -160,9 +184,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          'Xin chào, ${u.fullName}',
-                          style: const TextStyle(
-                            color: Colors.white,
+                          'Xin chào, ${u.name}',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onPrimary,
                             fontSize: 24,
                             fontWeight: FontWeight.w700,
                           ),
@@ -171,9 +195,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         Text(
                           u.isAdmin
                               ? 'Quản lý đội ngũ và xác minh công minh bạch.'
-                              : 'Quét QR, chia sẻ vị trí và theo dõi công của bạn.',
-                          style: const TextStyle(
-                            color: Colors.white,
+                              : 'Quét QR tại công ty và theo dõi công của bạn.',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onPrimary,
                             fontSize: 15,
                           ),
                         ),
@@ -205,41 +229,32 @@ class _HomeScreenState extends State<HomeScreen> {
                         );
                       }
                       final d = snap.data!;
-                      return Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(20),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'HÔM NAY · GIỜ VIỆT NAM',
-                                style: TextStyle(
-                                  color: Colors.blueGrey,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                u.isAdmin
-                                    ? '${d['checkIns']} lượt vào · ${d['checkOuts']} lượt ra'
-                                    : '${d['totalCount']} lượt chấm công đã xác nhận',
-                                style: Theme.of(context).textTheme.titleLarge,
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                u.isAdmin
-                                    ? '${d['lateCheckIns']} lượt đi trễ · ${d['openShifts']} ca chưa ra'
-                                    : 'Kết quả được đồng bộ từ máy chủ.',
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
+                      if (u.isAdmin) return DashboardPanel(s, d);
+                      return _TodayPanel(s, d);
                     },
                   ),
                   Builder(
                     builder: (context) {
                       final entries = <_HomeAction>[
+                        (
+                          title: u.isAdmin ? 'Duyệt nghỉ phép' : 'Nghỉ phép',
+                          detail: 'Đơn nghỉ và kết quả xử lý',
+                          icon: Icons.beach_access_outlined,
+                          screen: LeaveScreen(s),
+                        ),
+                        (
+                          title: 'Lịch sử chấm công',
+                          detail: 'Các lượt vào/ra đã ghi nhận',
+                          icon: Icons.history,
+                          screen: HistoryScreen(s),
+                        ),
+                        if (u.isAdmin)
+                          (
+                            title: 'Tổng quan theo ngày',
+                            detail: 'Lọc ngày, phòng ban và danh sách ca',
+                            icon: Icons.dashboard_outlined,
+                            screen: DashboardScreen(s),
+                          ),
                         if (u.isAdmin) ...[
                           (
                             title: 'Nhân viên',
@@ -260,6 +275,12 @@ class _HomeScreenState extends State<HomeScreen> {
                             screen: CatalogScreen(s, CatalogKind.shifts),
                           ),
                           (
+                            title: 'Lịch định kỳ',
+                            detail: 'Ngày làm và ca theo nhân viên',
+                            icon: Icons.repeat,
+                            screen: WorkSchedulesScreen(s),
+                          ),
+                          (
                             title: 'Phân công',
                             detail: 'Lịch làm theo nhân viên',
                             icon: Icons.event_available,
@@ -275,13 +296,19 @@ class _HomeScreenState extends State<HomeScreen> {
                             title: 'Tạo QR',
                             detail: 'Phiên chấm công ngắn hạn',
                             icon: Icons.qr_code,
-                            screen: QrGeneratorScreen(s),
+                            screen: SiteQrScreen(s),
                           ),
                           (
                             title: 'Thống kê',
                             detail: 'Công đã xác nhận',
                             icon: Icons.bar_chart_rounded,
                             screen: StatisticsScreen(s),
+                          ),
+                          (
+                            title: 'Hỗ trợ lịch và thiếu công',
+                            detail: 'Xử lý yêu cầu nhân viên',
+                            icon: Icons.support_agent,
+                            screen: AttendanceSupportScreen(s),
                           ),
                           (
                             title: 'Duyệt tài khoản',
@@ -312,13 +339,19 @@ class _HomeScreenState extends State<HomeScreen> {
                             title: 'Lịch làm việc',
                             detail: 'Ca đã được phân công',
                             icon: Icons.calendar_month_outlined,
-                            screen: ScheduleScreen(s),
+                            screen: TimesheetsScreen(s, scheduleOnly: true),
                           ),
                           (
                             title: 'Giải trình',
                             detail: 'Theo dõi kết quả xử lý',
                             icon: Icons.fact_check_outlined,
                             screen: RequestsScreen(s),
+                          ),
+                          (
+                            title: 'Hỗ trợ lịch và thiếu công',
+                            detail: 'Bổ sung lịch hoặc quên ra ca',
+                            icon: Icons.support_agent,
+                            screen: AttendanceSupportScreen(s),
                           ),
                           (
                             title: 'Lần cần xác minh',
@@ -357,12 +390,17 @@ class _HomeScreenState extends State<HomeScreen> {
                           )
                           .toList();
                       final review = main
-                          .where((e) => e.title.startsWith('Duyệt'))
+                          .where(
+                            (e) =>
+                                e.title.startsWith('Duyệt') ||
+                                e.title.startsWith('Hỗ trợ'),
+                          )
                           .toList();
                       const teamNames = {
                         'Nhân viên',
                         'Phòng ban',
                         'Ca làm việc',
+                        'Lịch định kỳ',
                         'Phân công',
                         'Địa điểm',
                       };
@@ -475,4 +513,64 @@ class AuditScreen extends StatelessWidget {
       icon: Icons.manage_history,
     ),
   );
+}
+
+class _TodayPanel extends StatelessWidget {
+  final Session session;
+  final Json data;
+  const _TodayPanel(this.session, this.data);
+  @override
+  Widget build(BuildContext context) {
+    final today = DateTime.parse(data['serverTimeUtc'])
+        .toUtc()
+        .add(const Duration(hours: 7))
+        .toIso8601String()
+        .substring(0, 10);
+    final entries = (data['items'] as List).cast<Json>();
+    final lines = entries
+        .expand((x) => (x['data']['lines'] as List).cast<Json>())
+        .where((x) => x['date'] == today)
+        .toList();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Ca hôm nay · Giờ Việt Nam',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            if (lines.isEmpty)
+              const Text(
+                'Hôm nay chưa có lịch làm. Không tính là vắng khi không có lịch.',
+              ),
+            ...lines.map(
+              (l) => ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.schedule),
+                title: Text('${l['shift']} · ${l['location']}'),
+                subtitle: Text(
+                  '${vietnamTime(l['startUtc'])} → ${vietnamTime(l['endUtc'])}\n${workStatus(l['status'])}\nVào: ${vietnamTime(l['checkInUtc'])} · Ra: ${vietnamTime(l['checkOutUtc'])}',
+                ),
+              ),
+            ),
+            for (final item in entries)
+              if (item['responseStatus'] == 'Pending' &&
+                  data['status'] == 'Published')
+                TextButton.icon(
+                  icon: const Icon(Icons.fact_check_outlined),
+                  label: const Text('Bảng công cần bạn xác nhận'),
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => TimesheetsScreen(session),
+                    ),
+                  ),
+                ),
+          ],
+        ),
+      ),
+    );
+  }
 }

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'features/auth/auth_screen.dart';
 import 'features/home_screen.dart';
 import 'state/session.dart';
+import 'state/app_preferences.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,12 +21,34 @@ class AttendanceApp extends StatefulWidget {
   State<AttendanceApp> createState() => _AttendanceAppState();
 }
 
-class _AttendanceAppState extends State<AttendanceApp> {
+class _AttendanceAppState extends State<AttendanceApp>
+    with WidgetsBindingObserver {
   final navigator = GlobalKey<NavigatorState>();
+  DateTime? backgroundAt;
   @override
   void initState() {
     super.initState();
     widget.session.addListener(changed);
+    widget.session.preferences.addListener(preferencesChanged);
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  void preferencesChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) backgroundAt = DateTime.now();
+    if (state == AppLifecycleState.resumed) {
+      if (backgroundAt != null &&
+          DateTime.now().difference(backgroundAt!).inSeconds >= 60 &&
+          widget.session.currentBiometrics &&
+          !widget.session.authenticationInProgress) {
+        unawaited(widget.session.clear());
+      }
+      backgroundAt = null;
+    }
   }
 
   void changed() {
@@ -39,6 +62,8 @@ class _AttendanceAppState extends State<AttendanceApp> {
   @override
   void dispose() {
     widget.session.removeListener(changed);
+    widget.session.preferences.removeListener(preferencesChanged);
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
@@ -47,47 +72,17 @@ class _AttendanceAppState extends State<AttendanceApp> {
     title: 'Đức Attendance',
     debugShowCheckedModeBanner: false,
     navigatorKey: navigator,
-    theme: ThemeData(
-      useMaterial3: true,
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff155eef)),
-      scaffoldBackgroundColor: const Color(0xfff5f7fb),
-      appBarTheme: const AppBarTheme(
-        backgroundColor: Color(0xfff5f7fb),
-        surfaceTintColor: Colors.transparent,
-        centerTitle: false,
-      ),
-      cardTheme: CardThemeData(
-        color: Colors.white,
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-          side: const BorderSide(color: Color(0xffe7ecf3)),
+    themeMode: widget.session.preferences.mode,
+    theme: appTheme(Brightness.light),
+    darkTheme: appTheme(Brightness.dark),
+    builder: (context, child) => MediaQuery(
+      data: MediaQuery.of(context).copyWith(
+        textScaler: AccessibleTextScaler(
+          MediaQuery.textScalerOf(context),
+          widget.session.preferences.fontScale,
         ),
       ),
-      inputDecorationTheme: InputDecorationTheme(
-        errorMaxLines: 3,
-        filled: true,
-        fillColor: Colors.white,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 17,
-        ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: Color(0xffdce3ed)),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: Color(0xffdce3ed)),
-        ),
-      ),
-      filledButtonTheme: FilledButtonThemeData(
-        style: FilledButton.styleFrom(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-        ),
-      ),
+      child: child!,
     ),
     home: AnimatedBuilder(
       animation: widget.session,
@@ -98,6 +93,75 @@ class _AttendanceAppState extends State<AttendanceApp> {
           : HomeScreen(widget.session, key: ValueKey(widget.session.user!.id)),
     ),
   );
+  ThemeData appTheme(Brightness brightness) {
+    final scheme = ColorScheme.fromSeed(
+      seedColor: Color(widget.session.preferences.color),
+      brightness: brightness,
+    );
+    return ThemeData(
+      useMaterial3: true,
+      colorScheme: scheme,
+      scaffoldBackgroundColor: brightness == Brightness.light
+          ? const Color(0xfff5f7fb)
+          : scheme.surface,
+      appBarTheme: AppBarTheme(
+        backgroundColor: scheme.surface,
+        surfaceTintColor: Colors.transparent,
+        centerTitle: false,
+      ),
+      cardTheme: CardThemeData(
+        color: brightness == Brightness.light
+            ? Colors.white
+            : scheme.surfaceContainerLow,
+        margin: const EdgeInsets.only(bottom: 12),
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(color: scheme.outlineVariant.withValues(alpha: .45)),
+        ),
+      ),
+      dividerTheme: DividerThemeData(
+        color: scheme.outlineVariant.withValues(alpha: .5),
+        space: 24,
+      ),
+      listTileTheme: const ListTileThemeData(
+        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      ),
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: brightness == Brightness.light
+            ? Colors.white
+            : scheme.surface,
+        indicatorColor: scheme.primaryContainer,
+        labelTextStyle: WidgetStateProperty.all(
+          const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        errorMaxLines: 3,
+        filled: true,
+        fillColor: scheme.surfaceContainerLowest,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 17,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: scheme.outlineVariant),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: scheme.outlineVariant),
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class SplashScreen extends StatelessWidget {

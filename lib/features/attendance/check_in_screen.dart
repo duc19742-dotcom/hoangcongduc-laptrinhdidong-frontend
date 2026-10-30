@@ -4,10 +4,13 @@ import 'package:uuid/uuid.dart';
 
 import '../../models/models.dart';
 import '../../services/attendance_service.dart';
+import '../../services/api_service.dart';
 import '../../services/device_service.dart';
 import '../../state/session.dart';
 import '../../widgets/common.dart';
 import '../../widgets/editor.dart';
+import '../../widgets/location_map.dart';
+import '../device/device_screens.dart';
 
 class CheckInScreen extends StatefulWidget {
   final Session session;
@@ -24,6 +27,15 @@ class _CheckInScreenState extends State<CheckInScreen> {
   Position? position;
   bool busy = false;
   Json? result;
+  double get targetAccuracy {
+    for (final item in assignments) {
+      if (item['id'] == selected) {
+        return (item['maxAccuracyMeters'] as num?)?.toDouble() ?? 50;
+      }
+    }
+    return 50;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -31,18 +43,14 @@ class _CheckInScreenState extends State<CheckInScreen> {
   }
 
   void load() {
-    final now = DateTime.now().toUtc().add(const Duration(hours: 7));
-    String day(DateTime d) => d.toIso8601String().substring(0, 10);
-    future = widget.session.api
-        .page(
-          '/employee-shifts/me?from=${day(now.subtract(const Duration(days: 1)))}&to=${day(now)}&pageSize=100',
-        )
-        .then((page) {
-          if (mounted && selected == null && page.items.length == 1) {
-            selected = page.items.single['id'];
-          }
-          return page;
-        });
+    future = widget.session.api.page('/attendance/options?action=$action').then(
+      (page) {
+        if (mounted && selected == null && page.items.length == 1) {
+          selected = page.items.single['id'];
+        }
+        return page;
+      },
+    );
   }
 
   void resetIntent() {
@@ -56,7 +64,9 @@ class _CheckInScreenState extends State<CheckInScreen> {
       position = null;
     });
     try {
-      final p = await DeviceService.position();
+      final p = await DeviceService.position(
+        targetAccuracyMeters: targetAccuracy,
+      );
       if (mounted) {
         setState(() {
           position = p;
@@ -72,17 +82,34 @@ class _CheckInScreenState extends State<CheckInScreen> {
 
   Future<void> submit() async {
     if (selected == null || busy) return;
-    if (key == null) {
-      await gps();
-      if (!mounted || position == null) return;
-    }
     setState(() => busy = true);
-    key ??= const Uuid().v4();
     try {
+      if (key == null) {
+        // Settle GPS first, preserving the short lifetime of the scanned QR.
+        position = null;
+        result = null;
+        position = await DeviceService.position(
+          targetAccuracyMeters: targetAccuracy,
+        );
+        if (!mounted) return;
+        final scanned = await Navigator.push<String>(
+          context,
+          MaterialPageRoute(builder: (_) => const ScannerScreen()),
+        );
+        if (!mounted || scanned == null) return;
+        qr = scanned;
+        if (!DeviceService.isFresh(position!)) {
+          position = await DeviceService.position(
+            targetAccuracyMeters: targetAccuracy,
+          );
+          if (!mounted) return;
+        }
+        key = const Uuid().v4();
+      }
       final r = await AttendanceService(widget.session.api).submit(
         action: action,
         assignmentId: selected!,
-        qrToken: '',
+        qrToken: qr!,
         position: position!,
         idempotencyKey: key!,
       );
@@ -94,9 +121,34 @@ class _CheckInScreenState extends State<CheckInScreen> {
         });
       }
     } catch (e) {
+      if (e is ApiException &&
+          e.status != null &&
+          e.status! < 500 &&
+          e.status != 429) {
+        key = null;
+        qr = null;
+      }
       if (mounted) message(context, e.toString(), error: true);
     } finally {
       if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> requestSchedule() async {
+    final reason = await askReason(
+      context,
+      'Yêu cầu bổ sung lịch',
+      minimum: 10,
+    );
+    if (reason == null || !mounted) return;
+    try {
+      await widget.session.api.post('/attendance-support', {
+        'kind': 'MissingSchedule',
+        'reason': reason,
+      });
+      if (mounted) message(context, 'Đã gửi yêu cầu cho Admin.');
+    } catch (e) {
+      if (mounted) message(context, e.toString(), error: true);
     }
   }
 
@@ -139,12 +191,37 @@ class _CheckInScreenState extends State<CheckInScreen> {
         if (s.hasError) return ErrorPanel(s.error!, () => setState(load));
         assignments = s.data!.items;
         if (assignments.isEmpty) {
-          return const Center(
+          return Center(
             child: Padding(
               padding: EdgeInsets.all(32),
-              child: Text(
-                'Bạn chưa được phân công ca cho hôm nay hoặc ca qua đêm. Hãy liên hệ quản trị viên.',
-                textAlign: TextAlign.center,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Chưa có ca phù hợp hoặc ca đã hoàn tất. Mở Lịch làm việc để kiểm tra, hoặc gửi yêu cầu bổ sung lịch cho Admin.',
+                    textAlign: TextAlign.center,
+                  ),
+                  TextButton(
+                    onPressed: () => setState(load),
+                    child: const Text('Tải lại'),
+                  ),
+                  OutlinedButton(
+                    onPressed: requestSchedule,
+                    child: const Text('Yêu cầu bổ sung lịch'),
+                  ),
+                  OutlinedButton(
+                    onPressed: () => setState(() {
+                      action = action == 'CheckIn' ? 'CheckOut' : 'CheckIn';
+                      selected = null;
+                      load();
+                    }),
+                    child: Text(
+                      action == 'CheckIn'
+                          ? 'Chuyển sang chấm công ra'
+                          : 'Chuyển sang chấm công vào',
+                    ),
+                  ),
+                ],
               ),
             ),
           );
@@ -161,7 +238,7 @@ class _CheckInScreenState extends State<CheckInScreen> {
                     (x) => DropdownMenuItem(
                       value: x['id'] as String,
                       child: Text(
-                        '${x['shiftName']} · ${dateOnly(x['workDate'])}',
+                        '${x['shiftName']} · ${x['locationName'] ?? ''} · ${dateOnly(x['workDate'])}',
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -171,6 +248,7 @@ class _CheckInScreenState extends State<CheckInScreen> {
                   ? null
                   : (v) => setState(() {
                       selected = v;
+                      position = null;
                       qr = null;
                       resetIntent();
                     }),
@@ -194,17 +272,64 @@ class _CheckInScreenState extends State<CheckInScreen> {
                   ? null
                   : (v) => setState(() {
                       action = v.first;
+                      position = null;
+                      selected = null;
+                      load();
                       qr = null;
                       resetIntent();
                     }),
             ),
             const SizedBox(height: 24),
+            if (selected != null &&
+                assignments.any(
+                  (x) => x['id'] == selected && x['latitude'] != null,
+                ))
+              Builder(
+                builder: (_) {
+                  final site = assignments.firstWhere(
+                    (x) => x['id'] == selected,
+                  );
+                  final distance = position == null
+                      ? null
+                      : Geolocator.distanceBetween(
+                          position!.latitude,
+                          position!.longitude,
+                          (site['latitude'] as num).toDouble(),
+                          (site['longitude'] as num).toDouble(),
+                        );
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      LocationMap(
+                        latitude: (site['latitude'] as num).toDouble(),
+                        longitude: (site['longitude'] as num).toDouble(),
+                        radius: (site['radiusMeters'] as num).toDouble(),
+                        userLatitude: position?.latitude,
+                        userLongitude: position?.longitude,
+                        accuracy: position?.accuracy,
+                      ),
+                      Text(
+                        'Bán kính ${site['radiusMeters']} m · GPS yêu cầu ≤ ${site['maxAccuracyMeters']} m',
+                      ),
+                      if (distance != null)
+                        Text(
+                          'Ước tính ${distance.toStringAsFixed(1)} m · ${position!.accuracy > targetAccuracy
+                              ? 'GPS chưa đạt'
+                              : distance > (site['radiusMeters'] as num)
+                              ? 'Ngoài vùng'
+                              : 'Trong vùng'}\nMẫu GPS: ${vietnamTime(position!.timestamp.toIso8601String())}. Máy chủ kiểm tra lại khi gửi.',
+                        ),
+                      const SizedBox(height: 12),
+                    ],
+                  );
+                },
+              ),
             ItemCard(
               title: position == null
                   ? 'Vị trí chấm công'
                   : 'Vị trí đã sẵn sàng',
               subtitle: position == null
-                  ? 'GPS mới sẽ được lấy ngay khi bấm chấm công.'
+                  ? 'Bấm chấm công để lấy GPS ổn định, sau đó quét QR công ty.'
                   : '${position!.latitude.toStringAsFixed(6)}, ${position!.longitude.toStringAsFixed(6)}\nSai số ước tính ${position!.accuracy.toStringAsFixed(1)} m',
               icon: Icons.my_location,
               onTap: busy ? null : gps,
@@ -224,7 +349,7 @@ class _CheckInScreenState extends State<CheckInScreen> {
             ),
             const SizedBox(height: 16),
             const Text(
-              'Thời gian theo máy chủ; vị trí phải trong bán kính cho phép. Trường hợp cần kiểm tra thêm có thể gửi giải trình.',
+              'Quét QR chung tại công ty; giờ theo máy chủ và GPS trong bán kính cho phép. Trường hợp cần kiểm tra thêm có thể gửi giải trình.',
             ),
             if (result != null) ...[
               const SizedBox(height: 24),

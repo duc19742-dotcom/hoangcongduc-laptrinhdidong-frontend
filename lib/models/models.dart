@@ -1,10 +1,28 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 typedef Json = Map<String, dynamic>;
 
 class UserProfile {
+  final String? displayName, avatarDataUrl;
+  String get name =>
+      displayName?.trim().isNotEmpty == true ? displayName! : fullName;
+  Uint8List? get avatarBytes {
+    try {
+      return avatarDataUrl == null
+          ? null
+          : base64Decode(avatarDataUrl!.split(',').last);
+    } catch (_) {
+      return null;
+    }
+  }
+
   final String id, fullName, username, email, role, approvalStatus;
   final String? employeeId;
   final bool emailConfirmed, phoneNumberConfirmed;
   const UserProfile({
+    this.displayName,
+    this.avatarDataUrl,
     required this.id,
     required this.fullName,
     required this.username,
@@ -17,6 +35,8 @@ class UserProfile {
   });
   bool get isAdmin => role == 'Admin';
   factory UserProfile.fromJson(Json j) => UserProfile(
+    displayName: j['displayName'],
+    avatarDataUrl: j['avatarDataUrl'],
     id: j['id'],
     fullName: j['fullName'],
     username: j['username'],
@@ -28,6 +48,8 @@ class UserProfile {
     phoneNumberConfirmed: j['phoneNumberConfirmed'] == true,
   );
   Json toJson() => {
+    'displayName': displayName,
+    'avatarDataUrl': avatarDataUrl,
     'id': id,
     'fullName': fullName,
     'username': username,

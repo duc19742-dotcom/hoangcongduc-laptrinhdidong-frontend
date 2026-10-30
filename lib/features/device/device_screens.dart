@@ -10,6 +10,7 @@ import '../../models/models.dart';
 import '../../services/device_service.dart';
 import '../../state/session.dart';
 import '../../widgets/common.dart';
+import '../../widgets/location_map.dart';
 
 class ScannerScreen extends StatefulWidget {
   const ScannerScreen({super.key});
@@ -210,6 +211,21 @@ class _GpsScreenState extends State<GpsScreen> {
                   }),
           ),
         const SizedBox(height: 20),
+        if (selected != null && locations.any((l) => l['id'] == selected))
+          Builder(
+            builder: (_) {
+              final site = locations.firstWhere((l) => l['id'] == selected);
+              return LocationMap(
+                latitude: (site['latitude'] as num).toDouble(),
+                longitude: (site['longitude'] as num).toDouble(),
+                radius: (site['radiusMeters'] as num).toDouble(),
+                userLatitude: position?.latitude,
+                userLongitude: position?.longitude,
+                accuracy: position?.accuracy,
+              );
+            },
+          ),
+        const SizedBox(height: 12),
         BusyButton(
           busy: busy,
           label: 'Lấy và chia sẻ vị trí với máy chủ',
@@ -229,7 +245,7 @@ class _GpsScreenState extends State<GpsScreen> {
           ItemCard(
             title: 'Tọa độ hiện tại',
             subtitle:
-                'Vĩ độ: ${position!.latitude.toStringAsFixed(7)}\nKinh độ: ${position!.longitude.toStringAsFixed(7)}\nĐộ chính xác: ${position!.accuracy.toStringAsFixed(1)} m',
+                'Vĩ độ: ${position!.latitude.toStringAsFixed(7)}\nKinh độ: ${position!.longitude.toStringAsFixed(7)}\nĐộ chính xác: ${position!.accuracy.toStringAsFixed(1)} m\nLấy mẫu: ${vietnamTime(position!.timestamp.toIso8601String())}',
             icon: Icons.location_on_outlined,
           ),
           if (verdict != null)

@@ -41,6 +41,17 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
+  Future<void> biometric(String method) async {
+    setState(() => busy = true);
+    try {
+      await widget.session.loginBiometric(method);
+    } catch (e) {
+      if (mounted) message(context, e.toString(), error: true);
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
   TextEditingController c(String key) =>
       fields.putIfAbsent(key, () => TextEditingController());
   @override
@@ -166,8 +177,34 @@ class _AuthScreenState extends State<AuthScreen> {
                           ?.copyWith(color: Colors.blueGrey),
                     ),
                     const SizedBox(height: 32),
+                    if (widget.mode == AuthMode.login) ...[
+                      if (widget.session.hasBiometrics)
+                        Text(
+                          'Tài khoản: ${widget.session.biometricAccount['username']}',
+                        ),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 8,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: busy ? null : () => biometric('Face'),
+                            icon: const Icon(Icons.face_outlined),
+                            label: const Text('Khuôn mặt'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: busy
+                                ? null
+                                : () => biometric('Fingerprint'),
+                            icon: const Icon(Icons.fingerprint),
+                            label: const Text('Vân tay'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                     if (widget.mode == AuthMode.login &&
-                        widget.session.rememberedUsername != null)
+                        widget.session.rememberedUsername != null &&
+                        !widget.session.hasBiometrics)
                       Card(
                         child: ListTile(
                           leading: const Icon(Icons.account_circle_outlined),

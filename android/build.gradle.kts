@@ -17,6 +17,12 @@ subprojects {
 }
 subprojects {
     project.evaluationDependsOn(":app")
+    // AGP's built-in Kotlin otherwise inherits JDK 25 for this Java 11 plugin.
+    if (name == "tflite_flutter") {
+        tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+            compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
+        }
+    }
 }
 
 tasks.register<Delete>("clean") {

@@ -7,7 +7,13 @@ import '../../widgets/editor.dart';
 
 class RequestsScreen extends StatefulWidget {
   final Session session;
-  const RequestsScreen(this.session, {super.key});
+  final String? initialStatus, departmentId;
+  const RequestsScreen(
+    this.session, {
+    super.key,
+    this.initialStatus,
+    this.departmentId,
+  });
   @override
   State<RequestsScreen> createState() => _RequestsScreenState();
 }
@@ -16,13 +22,19 @@ class _RequestsScreenState extends State<RequestsScreen> {
   String? status;
   int revision = 0;
   @override
+  void initState() {
+    super.initState();
+    status = widget.initialStatus;
+  }
+
+  @override
   Widget build(BuildContext context) => DataPage(
     key: ValueKey('$revision-$status'),
     title: widget.session.user!.isAdmin
         ? 'Duyệt giải trình'
         : 'Giải trình của tôi',
     load: (p) => widget.session.api.page(
-      '/attendance-requests?page=$p&pageSize=20${status == null ? '' : '&status=$status'}',
+      '/attendance-requests?page=$p&pageSize=20${status == null ? '' : '&status=$status'}${widget.departmentId == null ? '' : '&departmentId=${widget.departmentId}'}',
     ),
     header: SingleChildScrollView(
       scrollDirection: Axis.horizontal,

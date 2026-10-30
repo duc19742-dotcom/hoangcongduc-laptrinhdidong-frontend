@@ -20,6 +20,7 @@ class AttendanceService {
       'latitude': position.latitude,
       'longitude': position.longitude,
       'accuracyMeters': position.accuracy,
+      'capturedAtUtc': position.timestamp.toUtc().toIso8601String(),
     },
     idempotencyKey: idempotencyKey,
   );
